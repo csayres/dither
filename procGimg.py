@@ -228,6 +228,7 @@ class ProcGimg(object):
         self.centroids["xWok"] = xWok
         self.centroids["yWok"] = yWok
         self.centroids["zWok"] = zWok
+        self.centroids["fluxNorm"] = self.centroids.cflux / self.exptime
 
         self._getGuideStars() # sets attr self.guideStars
         self._matchGuideStars() # sets attr self.matches
@@ -370,8 +371,8 @@ class ProcGimg(object):
 
         results = pandas.DataFrame(list(results.dicts()))
         # add a pseudoflux column
-        flux = numpy.exp(-results.phot_g_mean_mag/2.5)*50000
-        results["flux"] = flux
+        flux = 10**(-results.phot_g_mean_mag/2.5) # plus a constant zeropoint
+        results["fluxNorm"] = flux
 
         # determine where these stars should land in wok and guide coords
         xWok, yWok, fieldWarn, HA, PA = radec2wokxy(
@@ -513,6 +514,10 @@ class GuideBundle(object):
         self.fitWokOffset()
         self.fitPointing()
 
+    @property
+    def configid(self):
+        return self.gfaDict[3].configid
+
     def fitWokOffset(self):
 
         df = self.matches.copy()
@@ -617,9 +622,11 @@ if __name__ == "__main__":
     # scanMJDs()
     # process()
     gb1 = GuideBundle("lco", 59854, 100)
+    print("configid", gb1.configid)
     gb1.fitPointing()
 
     gb2 = GuideBundle("apo", 59930, 243)
+    print("configid", gb2.configid)
     gb2.fitPointing()
     import pdb; pdb.set_trace()
 

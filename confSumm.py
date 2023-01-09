@@ -1,9 +1,17 @@
 from numpy.lib.recfunctions import drop_fields
 import pandas
-import datetime
+from datetime import datetime
 from pydl.pydlutils.yanny import yanny
+import os
+import glob
+from astropy.io import fits
+import numpy
+from astropy.time import Time, TimeDelta
+from astropy import units as u
 
-BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/software/git/sdss/sdsscore/main"
+
+CONFIG_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/software/git/sdss/sdsscore/main"
+DATA_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/sdsswork/data"
 
 
 def parseConfSummary(ff):
@@ -97,8 +105,150 @@ def parseConfSummary(ff):
 
 
 class ConfSumm(object):
-    def __init__(self, site, configID):
-        self.site = site.lower()
+    def __init__(self, configID):
+        if configID > 10000000:
+            self.site = "lco"
+        else:
+            self.site = "apo"
         self.configID = configID
+        confPath, confFPath = self._getConfPaths()
+        assert os.path.exists(confPath)
+        assert os.path.exists(confFPath)
+        self.confExpect = parseConfSummary(confPath)
+        self.confMeas = parseConfSummary(confFPath)
+        self.mjd = int(self.confMeas.mjd.to_numpy()[0])
+
+        self._getGimgExps()
+        self._getApExps()
+        self._getBossExps()
+
+    def _getConfPaths(self):
+        confStr = ("%i"%self.configID).zfill(6)
+        confSubDir = confStr[:-2] + "XX"
+        conf = CONFIG_BASE_PATH + "/%s/summary_files/%s/confSummary-%i.par"%(self.site, confSubDir, self.configID)
+        confF = CONFIG_BASE_PATH + "/%s/summary_files/%s/confSummaryF-%i.par"%(self.site, confSubDir, self.configID)
+        return conf, confF
+
+    def _getGimgExps(self):
+        # only look from gcam3
+        if self.site == "apo":
+            gcamNum = "gfa3n"
+        else:
+            gcamNum = "gfa3s"
+
+        gimgGlob = DATA_BASE_PATH + "/gcam/%s/%i/proc-gimg-%s-*.fits"%(self.site,self.mjd,gcamNum)
+        gimgFiles = sorted(glob.glob(gimgGlob))
+        self.gimgNum = []
+        self.gimgFile = []
+        self.gimgExpStart = []
+        self.gimgExpEnd = []
+        self.gimgExpTime = []
+        for file in gimgFiles:
+            ff = fits.open(file)
+            if ff[1].header["CONFIGID"] == self.configID:
+                gimgNum = int(file.split("-")[-1].split(".fits")[0])
+                expStart = Time(ff[1].header["DATE-OBS"], format="iso", scale="tai")
+                expTime = ff[1].header["EXPTIME"]
+                expEnd = expStart + TimeDelta(expTime*u.s)
+
+                self.gimgNum.append(gimgNum)
+                self.gimgFile.append(file)
+                self.gimgExpStart.append(expStart)
+                self.gimgExpTime.append(expTime)
+                self.gimgExpEnd.append(expEnd)
+
+    def _getApExps(self):
+        # find all apogee exposures with this configid
+        apGlob = DATA_BASE_PATH + "/apogee/%s/%i/apR-a*.apz"%(self.site,self.mjd)
+        apFiles = sorted(glob.glob(apGlob))
+
+        self.apNum = []
+        self.apFile = []
+        self.apExpStart = []
+        self.apExpEnd = []
+        self.apExpTime = []
+        self.apDitherFile = []
+        for file in apFiles:
+            ff = fits.open(file)
+            if ff[1].header["IMAGETYP"] != "Object":
+                continue
+            if ff[1].header["CONFIGID"] == self.configID:
+                apNum = int(file.split("-")[-1].split(".apz")[0])
+                dateOBS = ff[1].header["DATE-OBS"].replace("T", " ")
+                expStart = Time(dateOBS, format="iso", scale="tai")
+                expTime = ff[1].header["EXPTIME"]
+                expEnd = expStart + TimeDelta(expTime*u.s)
+
+                dithGlob = DATA_BASE_PATH + "/apogee/quickred/%s/%i/dither/ditherAPOGEE-%i-*.fits"%(self.site, self.mjd, apNum)
+                dithFile = glob.glob(dithGlob)
+                if len(dithFile) == 1:
+                    self.apNum.append(apNum)
+                    self.apFile.append(file)
+                    self.apExpStart.append(expStart)
+                    self.apExpTime.append(expTime)
+                    self.apExpEnd.append(expEnd)
+                    self.apDitherFile.append(dithFile[0])
+
+
+    def _getBossExps(self):
+
+        bossGlob = DATA_BASE_PATH + "/boss/spectro/%s/%i/sdR*.fit.gz"%(self.site,self.mjd)
+        bossFiles = sorted(glob.glob(bossGlob))
+
+        self.bossNum = []
+        self.bossFile = []
+        self.bossColor = []
+        self.bossExpStart = []
+        self.bossExpEnd = []
+        self.bossExpTime = []
+        self.bossDitherFile = []
+
+        for file in bossFiles:
+            ff = fits.open(file)
+            if ff[0].header["FLAVOR"] != "science":
+                continue
+            if ff[0].header["CONFID"] == self.configID:
+                bossNum = int(file.split("-")[-1].split(".fit.gz")[0])
+                bossNumPad = ("%i"%bossNum).zfill(8)
+                dateOBS = ff[0].header["DATE-OBS"].replace("T", " ")
+                expStart = Time(dateOBS, format="iso", scale="tai")
+                expTime = ff[0].header["EXPTIME"]
+                expEnd = expStart + TimeDelta(expTime*u.s)
+                if "sdR-b1-" in file:
+                    bossColor = "blue"
+                    bossColorStr = "b1"
+                else:
+                    bossColor = "red"
+                    bossColorStr = "r1"
+
+
+                dithGlob = DATA_BASE_PATH + "/boss/sos/%s/%i/dither/ditherBOSS-%s-%s-*.fits"%(self.site, self.mjd, bossNumPad, bossColorStr)
+                dithFile = glob.glob(dithGlob)
+                if len(dithFile) == 1:
+                    self.bossNum.append(bossNum)
+                    self.bossFile.append(file)
+                    self.bossColor.append(bossColor)
+                    self.bossExpStart.append(expStart)
+                    self.bossExpEnd.append(expEnd)
+                    self.bossExpTime.append(expTime)
+                    self.bossDitherFile.append(dithFile[0])
+
+
+
+
+if __name__ == "__main__":
+
+    confLCO = 10000305
+    confAPO1 = 7917
+    confAPO2 = 5241 # apogee targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
+    confAPO3 = 5168 # boss targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
+
+    lco = ConfSumm(confLCO)
+    apo1 = ConfSumm(confAPO1)
+    apo2 = ConfSumm(confAPO2)
+    apo3 = ConfSumm(confAPO3)
+
+    import pdb; pdb.set_trace()
+
 
 
