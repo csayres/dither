@@ -424,7 +424,7 @@ class ProcGimg(object):
         xyDetect = self.centroids[["xCCD", "yCCD"]].to_numpy()
         xyGaia = self.guideStars[["xCCD", "yCCD"]].to_numpy()
         dx, dy = getShift2(xyGaia, xyDetect)
-        print("gfa %i shift %.2f %.2f"%(self.gfaID, dx, dy))
+        # print("gfa %i shift %.2f %.2f"%(self.gfaID, dx, dy))
         xyDetectShift = xyDetect + numpy.array([[dx,dy]]*len(xyDetect))
         idxDetect, idxGaia, dist = arg_nearest_neighbor(xyDetectShift, xyGaia)#, atol=thresh)
         keep = dist < thresh

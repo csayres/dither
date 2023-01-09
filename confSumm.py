@@ -8,7 +8,11 @@ from astropy.io import fits
 import numpy
 from astropy.time import Time, TimeDelta
 from astropy import units as u
+from coordio.utils import fitsTableToPandas, wokxy2radec, radec2wokxy
+import matplotlib.pyplot as plt
+import time
 
+from procGimg import GuideBundle
 
 CONFIG_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/software/git/sdss/sdsscore/main"
 DATA_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/sdsswork/data"
@@ -42,7 +46,11 @@ def parseConfSummary(ff):
     df["observatory"] = yf["observatory"]
     df["raCen"] = float(yf["raCen"])
     df["decCen"] = float(yf["decCen"])
+    df["pa"] = float(yf["pa"])
     df["filename"] = ff
+    coord_epoch = df.coord_epoch.to_numpy()
+    _tt = Time(coord_epoch, format="jyear")
+    df["coord_epoch_jd"] = _tt.jd
     try:
         df["fvc_image_path"] = yf["fvc_image_path"]
     except:
@@ -104,13 +112,46 @@ def parseConfSummary(ff):
     return df
 
 
-class ConfSumm(object):
-    def __init__(self, configID):
+class SciExp(object):
+    def __init__(
+        self, site, fiberType, mjd, sciImgNum, expStart, expTime,
+        gimgNums, ditherFile, confExpect, confMeas,
+        quick=True
+    ):
+        if quick:
+            gimgNums = numpy.random.choice(gimgNums, size=3)
+        self.site = site.lower()
+        self.fiberType = fiberType.lower()
+        self.mjd = mjd
+        self.sciImgNum = sciImgNum
+        self.gimgNums = gimgNums
+        self.confExpect = confExpect.copy()
+        self.confMeas = confMeas.copy()
+
+        self.guideBundles = [GuideBundle(site,mjd,imgNum) for imgNum in gimgNums]
+
+        self.dateObs = expStart + TimeDelta(expTime/2*u.s) # midpoint of spectrograph exposure
+        self.dateObsJD = self.dateObs.jd
+
+        ff = fits.open(ditherFile)
+        ditherFlux = fitsTableToPandas(ff[1].data)
+
+        import pdb; pdb.set_trace()
+
+
+
+class Configuration(object):
+    def __init__(self, configID, color="blue"):
+        """color ignored for apogee, corresponds to red or blue boss chip
+        """
+        assert color in ["blue", "red"]
+
         if configID > 10000000:
             self.site = "lco"
         else:
             self.site = "apo"
         self.configID = configID
+        self.color = color.lower()
         confPath, confFPath = self._getConfPaths()
         assert os.path.exists(confPath)
         assert os.path.exists(confFPath)
@@ -118,9 +159,136 @@ class ConfSumm(object):
         self.confMeas = parseConfSummary(confFPath)
         self.mjd = int(self.confMeas.mjd.to_numpy()[0])
 
+        self.gimgNum = []
+        self.gimgFile = []
+        self.gimgExpStart = []
+        self.gimgExpEnd = []
+        self.gimgExpTime = []
+
+        self.apNum = []
+        self.apFile = []
+        self.apExpStart = []
+        self.apExpEnd = []
+        self.apExpTime = []
+        self.apDitherFile = []
+
+        self.bossNum = []
+        self.bossFile = []
+        self.bossExpStart = []
+        self.bossExpEnd = []
+        self.bossExpTime = []
+        self.bossDitherFile = []
+
         self._getGimgExps()
         self._getApExps()
         self._getBossExps()
+
+        if len(self.apNum) > 0:
+            self.fiberType = "apogee"
+            assert len(self.bossNum) == 0, "found both ap and boss exposures"
+            # keep only apogee assigned fibers
+            self.confMeasAssigned = self.confMeas[
+                (self.confMeas.fiberType == "APOGEE") & \
+                (self.confMeas.activeFiber == True) & \
+                (self.confMeas.isSky == False) & \
+                (self.confMeas.fiberId != -999)
+            ]
+            self.confExpectAssigned = self.confExpect[
+                (self.confExpect.fiberType == "APOGEE") & \
+                (self.confExpect.positionerId.isin(
+                    self.confMeasAssigned.positionerId.to_numpy()
+                    )
+                )
+            ]
+        elif len(self.bossNum) > 0:
+            self.fiberType = "boss"
+            assert len(self.apNum) == 0, "found both ap and boss exposures"
+            # keep only apogee assigned fibers
+            self.confMeasAssigned = self.confMeas[
+                (self.confMeas.fiberType == "BOSS") & \
+                (self.confMeas.activeFiber == True) & \
+                (self.confMeas.isSky == False) & \
+                (self.confMeas.fiberId != -999)
+            ]
+            self.confExpectAssigned = self.confExpect[
+                (self.confExpect.fiberType == "BOSS") & \
+                (self.confExpect.positionerId.isin(
+                    self.confMeasAssigned.positionerId.to_numpy()
+                    )
+                )
+            ]
+        else:
+            raise RuntimeError("No Boss or Ap exposures found")
+
+        self.sciExps = self.bundleSciExps()
+
+
+    def bundleSciExps(self):
+        if self.fiberType == "apogee":
+            attrPre = "ap"
+        else:
+            attrPre = "boss"
+        Num = getattr(self,"%sNum"%attrPre)
+        File = getattr(self,"%sFile"%attrPre)
+        ExpStart = getattr(self,"%sExpStart"%attrPre)
+        ExpEnd = getattr(self,"%sExpEnd"%attrPre)
+        ExpTime = getattr(self,"%sExpTime"%attrPre)
+        DitherFile = getattr(self,"%sDitherFile"%attrPre)
+
+        sciExps = []
+        ii=0
+        for n,f,es,ee,et,df in zip(Num,File,ExpStart,ExpEnd,ExpTime,DitherFile):
+            # find what gimgs go with this science image
+            if ii==3:
+                break
+            print("on image n",n)
+            gimgExpNums = []
+            for gimgNum, gimgStart, gimgEnd in zip(self.gimgNum, self.gimgExpStart, self.gimgExpEnd):
+                if gimgStart < es:
+                    continue
+                if gimgEnd > ee:
+                    continue
+                gimgExpNums.append(gimgNum)
+
+            sciExp = SciExp(site=self.site, fiberType=self.fiberType,
+                             mjd=self.mjd, sciImgNum=n, expStart=es, expTime=et, gimgNums=gimgExpNums,
+                             ditherFile=df, confExpect=self.confExpectAssigned,
+                             confMeas=self.confMeasAssigned)
+            sciExps.append(sciExp)
+            ii+=1
+
+        return sciExps
+
+    def _testCoordio(self):
+        # test that coordinate propagation gives the same answers as the
+        # configuration file
+        # seems to work
+        dxWok = []
+        dyWok = []
+        for ii, row in self.confExpectAssigned.iterrows():
+            xWok, yWok, fieldWarn, HA, PA = radec2wokxy(
+                [float(row.racat)], [float(row.deccat)], float(row.coord_epoch_jd), self.fiberType.capitalize(),
+                float(row.raCen), float(row.decCen), float(row.pa),
+                self.site.upper(), float(row.epoch), focalScale=float(row.focal_scale),
+                pmra=float(row.pmra), pmdec=float(row.pmdec)
+            )
+            dxWok.append(xWok[0] - float(row.xwok))
+            dyWok.append(yWok[0] - float(row.ywok))
+
+        dxWok = numpy.array(dxWok)
+        dyWok = numpy.array(dyWok)
+        drWok = numpy.sqrt(dxWok**2+dyWok**2)
+        print(sorted(drWok)[-5:])
+        rms = numpy.sqrt(numpy.mean(drWok**2))
+        med = numpy.median(drWok)
+        print("rms um", rms, med)
+
+        plt.figure()
+        plt.quiver(self.confExpectAssigned.xwok,self.confExpectAssigned.ywok,dxWok,dyWok)
+        plt.savefig("dxy_%i.png"%self.configID)
+            # import pdb; pdb.set_trace()
+
+
 
     def _getConfPaths(self):
         confStr = ("%i"%self.configID).zfill(6)
@@ -138,11 +306,7 @@ class ConfSumm(object):
 
         gimgGlob = DATA_BASE_PATH + "/gcam/%s/%i/proc-gimg-%s-*.fits"%(self.site,self.mjd,gcamNum)
         gimgFiles = sorted(glob.glob(gimgGlob))
-        self.gimgNum = []
-        self.gimgFile = []
-        self.gimgExpStart = []
-        self.gimgExpEnd = []
-        self.gimgExpTime = []
+
         for file in gimgFiles:
             ff = fits.open(file)
             if ff[1].header["CONFIGID"] == self.configID:
@@ -159,15 +323,14 @@ class ConfSumm(object):
 
     def _getApExps(self):
         # find all apogee exposures with this configid
-        apGlob = DATA_BASE_PATH + "/apogee/%s/%i/apR-a*.apz"%(self.site,self.mjd)
+        if self.site == "apo":
+            apStr = "apR"
+        else:
+            apStr = "asR"
+        apGlob = DATA_BASE_PATH + "/apogee/%s/%i/%s-a*.apz"%(self.site,self.mjd,apStr)
         apFiles = sorted(glob.glob(apGlob))
 
-        self.apNum = []
-        self.apFile = []
-        self.apExpStart = []
-        self.apExpEnd = []
-        self.apExpTime = []
-        self.apDitherFile = []
+
         for file in apFiles:
             ff = fits.open(file)
             if ff[1].header["IMAGETYP"] != "Object":
@@ -195,17 +358,17 @@ class ConfSumm(object):
         bossGlob = DATA_BASE_PATH + "/boss/spectro/%s/%i/sdR*.fit.gz"%(self.site,self.mjd)
         bossFiles = sorted(glob.glob(bossGlob))
 
-        self.bossNum = []
-        self.bossFile = []
-        self.bossColor = []
-        self.bossExpStart = []
-        self.bossExpEnd = []
-        self.bossExpTime = []
-        self.bossDitherFile = []
-
         for file in bossFiles:
             ff = fits.open(file)
             if ff[0].header["FLAVOR"] != "science":
+                continue
+            if self.color == "blue" and "sdR-r1-" in file:
+                continue
+            if self.color == "blue" and "sdR-r2-" in file:
+                continue
+            if self.color == "red" and "sdR-b1-" in file:
+                continue
+            if self.color == "red" and "sdR-b2-" in file:
                 continue
             if ff[0].header["CONFID"] == self.configID:
                 bossNum = int(file.split("-")[-1].split(".fit.gz")[0])
@@ -215,11 +378,13 @@ class ConfSumm(object):
                 expTime = ff[0].header["EXPTIME"]
                 expEnd = expStart + TimeDelta(expTime*u.s)
                 if "sdR-b1-" in file:
-                    bossColor = "blue"
                     bossColorStr = "b1"
-                else:
-                    bossColor = "red"
+                elif "sdR-r1-" in file:
                     bossColorStr = "r1"
+                elif "sdR-b2-" in file:
+                    bossColorStr = "b2"
+                else:
+                    bossColorStr = "r2"
 
 
                 dithGlob = DATA_BASE_PATH + "/boss/sos/%s/%i/dither/ditherBOSS-%s-%s-*.fits"%(self.site, self.mjd, bossNumPad, bossColorStr)
@@ -227,7 +392,6 @@ class ConfSumm(object):
                 if len(dithFile) == 1:
                     self.bossNum.append(bossNum)
                     self.bossFile.append(file)
-                    self.bossColor.append(bossColor)
                     self.bossExpStart.append(expStart)
                     self.bossExpEnd.append(expEnd)
                     self.bossExpTime.append(expTime)
@@ -238,17 +402,22 @@ class ConfSumm(object):
 
 if __name__ == "__main__":
 
-    confLCO = 10000305
-    confAPO1 = 7917
-    confAPO2 = 5241 # apogee targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
-    confAPO3 = 5168 # boss targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
+    tstart = time.time()
+    confLCO1 = 10000207 #apogee
+    lco = Configuration(confLCO1)
+    print("one config took", time.time()-tstart)
 
-    lco = ConfSumm(confLCO)
-    apo1 = ConfSumm(confAPO1)
-    apo2 = ConfSumm(confAPO2)
-    apo3 = ConfSumm(confAPO3)
 
-    import pdb; pdb.set_trace()
+    # confLCO2 = 10000275 #boss
+    # confAPO2 = 5951 # apogee targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
+    # confAPO3 = 5370 # boss targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
+
+    # lco1 = Configuration(confLCO1)
+    # lco2 = Configuration(confLCO2)
+    # apo2 = Configuration(confAPO2)
+    # apo3 = Configuration(confAPO3)
+
+    # import pdb; pdb.set_trace()
 
 
 
