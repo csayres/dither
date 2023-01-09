@@ -119,6 +119,7 @@ class SciExp(object):
         quick=True
     ):
         if quick:
+            # use only 3 random guide images
             gimgNums = numpy.random.choice(gimgNums, size=3)
         self.site = site.lower()
         self.fiberType = fiberType.lower()
@@ -130,13 +131,37 @@ class SciExp(object):
 
         self.guideBundles = [GuideBundle(site,mjd,imgNum) for imgNum in gimgNums]
 
+        # pointing parameters from gimgs
+        self.raFit = numpy.median([gb.raCenFit] for gb in self.guideBundles)
+        self.decFit = numpy.median([gb.decCenFit] for gb in self.guideBundles)
+        self.paFit = numpy.median([gb.paFit] for gb in self.guideBundles)
+        self.scaleFit = numpy.median([gb.scaleFit] for gb in self.guideBundles)
+
         self.dateObs = expStart + TimeDelta(expTime/2*u.s) # midpoint of spectrograph exposure
         self.dateObsJD = self.dateObs.jd
+
+        xWokStar = []
+        yWokStar = []
+        for ii, row in confMeas.iterrows():
+            xWok, yWok, fieldWarn, HA, PA = radec2wokxy(
+                [float(row.racat)], [float(row.deccat)], float(row.coord_epoch_jd), self.fiberType.capitalize(),
+                self.raFit, self.decFit, self.paFit,
+                self.site.upper(), self.dateObsJD, focalScale=self.scaleFit,
+                pmra=float(row.pmra), pmdec=float(row.pmdec)
+            )
+            xWokStar.append(xWok[0])
+            yWokStar.append(yWok[0])
+
+        self.confMeas["xWokStar"] = numpy.array(xWokStar)
+        self.confMeas["yWokStar"] = numpy.array(yWokStar)
+
 
         ff = fits.open(ditherFile)
         ditherFlux = fitsTableToPandas(ff[1].data)
 
+
         import pdb; pdb.set_trace()
+
 
 
 
