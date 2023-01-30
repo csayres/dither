@@ -496,7 +496,7 @@ class ProcGimg(object):
 
 
 class GuideBundle(object):
-    def __init__(self, site, mjd, imgNum):
+    def __init__(self, site, mjd, imgNum, fitPointing=False):
         self.mjd = mjd
         self.imgNum = imgNum
         self.site = site.lower()
@@ -525,7 +525,13 @@ class GuideBundle(object):
         self.matches = df
 
         self.fitWokOffset()
-        self.fitPointing()
+        if fitPointing:
+            self.fitPointing()
+        else:
+            self.raCenFit = numpy.nan
+            self.decCenFit = numpy.nan
+            self.paFit = numpy.nan
+            self.scaleFit = numpy.nan
 
     @property
     def configid(self):

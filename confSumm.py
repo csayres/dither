@@ -19,8 +19,8 @@ from procGimg import GuideBundle
 CONFIG_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/software/git/sdss/sdsscore/main"
 DATA_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/sdsswork/data"
 
-def processGuideBundle(imageNum, site, mjd):
-    gb = GuideBundle(site, mjd, imageNum)
+def processGuideBundle(imageNum, site, mjd, fitPointing):
+    gb = GuideBundle(site, mjd, imageNum, fitPointing)
 
     matches = gb.matches.copy()
     matches["fluxRatio"] = matches.fluxNorm_meas / matches.fluxNorm_expect
@@ -128,7 +128,7 @@ class SciExp(object):
     def __init__(
         self, site, fiberType, mjd, sciImgNum, expStart, expTime,
         gimgNums, ditherFile, confMeas,
-        quick=False
+        quick=False, fitPointing=False
     ):
         if quick:
             # use only 3 random guide images
@@ -140,7 +140,7 @@ class SciExp(object):
         self.gimgNums = gimgNums
         self.confMeas = confMeas.copy()
 
-        _processGuideBundle = partial(processGuideBundle, mjd=mjd, site=site)
+        _processGuideBundle = partial(processGuideBundle, mjd=mjd, site=site, fitPointing=fitPointing)
         p = Pool(12)
         matches = p.map(_processGuideBundle, gimgNums)
         matches = pandas.concat(matches)
@@ -212,7 +212,7 @@ class SciExp(object):
 
 
 class Configuration(object):
-    def __init__(self, configID, color="red"):
+    def __init__(self, configID, color="red", fitPointing=False):
         """color ignored for apogee, corresponds to red or blue boss chip
         """
         assert color in ["blue", "red"]
@@ -221,6 +221,7 @@ class Configuration(object):
             self.site = "lco"
         else:
             self.site = "apo"
+        self.fitPointing = fitPointing
         self.configID = configID
         self.color = color.lower()
         confPath, confFPath = self._getConfPaths()
@@ -313,7 +314,7 @@ class Configuration(object):
             sciExp = SciExp(site=self.site, fiberType=self.fiberType,
                              mjd=self.mjd, sciImgNum=n, expStart=es, expTime=et, gimgNums=gimgExpNums,
                              ditherFile=df,
-                             confMeas=self.confMeasAssigned)
+                             confMeas=self.confMeasAssigned, fitPointing=self.fitPointing)
             print("sigmaGFA", sciExp.confMeas.sigmaGFA.to_numpy()[0])
             dframe = sciExp.confMeas.copy()
             dframe["mjd"] = self.mjd
