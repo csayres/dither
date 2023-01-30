@@ -75,7 +75,9 @@ def getLCO():
         out = db.select(mjd=mjdStart)
         if len(out) == 0:
             continue
-
+        keep = out["observatory"] == "lco"
+        out = out[keep]
+        print("on mjd", mjdStart)
         dChernoRA = out["cherno_offset_ra"]
         dChernoDec = out["cherno_offset_dec"]
         dRA = out["offset_ra"]
