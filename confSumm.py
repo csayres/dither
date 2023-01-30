@@ -212,7 +212,7 @@ class SciExp(object):
 
 
 class Configuration(object):
-    def __init__(self, configID, color="red", fitPointing=False):
+    def __init__(self, configID, color="red", fitPointing=True):
         """color ignored for apogee, corresponds to red or blue boss chip
         """
         assert color in ["blue", "red"]
