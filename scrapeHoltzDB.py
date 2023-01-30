@@ -126,7 +126,7 @@ def getLCO():
 def procAllLCO():
     os.nice(10)
     df = pandas.read_csv("holtzScrapeLCO.csv")
-    configIDs = list(set(df.configuratId))
+    configIDs = list(set(df.configurationId))
     from confSumm import Configuration
     for configID in configIDs:
         Configuration(configID)
