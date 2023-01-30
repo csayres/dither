@@ -128,7 +128,7 @@ class SciExp(object):
     def __init__(
         self, site, fiberType, mjd, sciImgNum, expStart, expTime,
         gimgNums, ditherFile, confMeas,
-        quick=True, fitPointing=False
+        quick=False, fitPointing=False
     ):
         if quick:
             # use only 3 random guide images
@@ -149,6 +149,10 @@ class SciExp(object):
         # self.guideBundles = [GuideBundle(site,mjd,imgNum) for imgNum in gimgNums]
 
         # pointing parameters from gimgs
+        # write gfa matches to csv
+        matches["sciImgNum"] = sciImgNum
+        matches.to_csv("gfa_%i.csv")
+
         self.raFit = numpy.median(matches.raFit)
         self.decFit = numpy.median(matches.decFit)
         self.paFit = numpy.median(matches.paFit)
@@ -210,7 +214,6 @@ class SciExp(object):
 
 
 
-
 class Configuration(object):
     def __init__(self, configID, color="red", fitPointing=True):
         """color ignored for apogee, corresponds to red or blue boss chip
@@ -252,7 +255,6 @@ class Configuration(object):
         self.bossDitherFile = []
 
         self._getGimgExps()
-        print("configID", configID, "gimgList", self.gimgFile)
         self._getApExps()
         self._getBossExps()
 

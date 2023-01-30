@@ -133,7 +133,8 @@ def procAllLCO():
 
 
 if __name__ == "__main__":
-    procAllLCO()
+    # procAllLCO()
+    Configuration(10000385)
 
 
 
