@@ -128,7 +128,7 @@ class SciExp(object):
     def __init__(
         self, site, fiberType, mjd, sciImgNum, expStart, expTime,
         gimgNums, ditherFile, confMeas,
-        quick=False, fitPointing=False
+        quick=True, fitPointing=False
     ):
         if quick:
             # use only 3 random guide images
@@ -252,6 +252,7 @@ class Configuration(object):
         self.bossDitherFile = []
 
         self._getGimgExps()
+        print("configID", configID, "gimgList", self.gimgFile)
         self._getApExps()
         self._getBossExps()
 
