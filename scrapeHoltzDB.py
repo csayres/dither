@@ -73,6 +73,8 @@ def getLCO():
         if mjdStart > mjdEnd:
             break
         out = db.select(mjd=mjdStart)
+        if len(out) == 0:
+            continue
 
         dChernoRA = out["cherno_offset_ra"]
         dChernoDec = out["cherno_offset_dec"]
@@ -93,6 +95,7 @@ def getLCO():
             {
                 "configurationId": out["config_id"],
                 "camera": out["camera"],
+                "site": out["observatory"],
                 "mjd": mjdStart,
                 "fiberID": fiberID,
                 "dChernoRA": dChernoRA,
