@@ -66,10 +66,11 @@ def getAPO():
 
 
 def getLCO():
-    mjdStart = 59820
+    mjdStart = 59820 - 1
     mjdEnd = 59966
     dfList = []
     while True:
+        mjdStart += 1
         if mjdStart > mjdEnd:
             break
         out = db.select(mjd=mjdStart)
@@ -77,7 +78,7 @@ def getLCO():
             continue
         keep = out["observatory"] == "lco"
         out = out[keep]
-        print("on mjd", mjdStart)
+        print("got", mjdStart)
         dChernoRA = out["cherno_offset_ra"]
         dChernoDec = out["cherno_offset_dec"]
         dRA = out["offset_ra"]
@@ -116,7 +117,6 @@ def getLCO():
             }
 
         ))
-        mjdStart += 1
 
     df = pandas.concat(dfList)
     df.to_csv("holtzScrapeLCO.csv", index=False)
