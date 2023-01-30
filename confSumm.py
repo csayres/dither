@@ -141,7 +141,7 @@ class SciExp(object):
         self.confMeas = confMeas.copy()
 
         _processGuideBundle = partial(processGuideBundle, mjd=mjd, site=site, fitPointing=fitPointing)
-        p = Pool(12)
+        p = Pool(25)
         matches = p.map(_processGuideBundle, gimgNums)
         matches = pandas.concat(matches)
         p.close()
