@@ -17,6 +17,7 @@ from coordio.transforms import arg_nearest_neighbor
 import peewee
 from sdssdb.peewee.sdss5db import database, catalogdb
 database.set_profile('operations')
+
 from skimage.exposure import equalize_hist
 import matplotlib.pyplot as plt
 import sep
@@ -65,6 +66,9 @@ def getCentroids(data):
 
 def queryGaia(raCen, decCen, radius=0.08):
     # all inputs in degrees
+    # from sdssdb.peewee.sdss5db import database, catalogdb
+    # database.set_profile('operations')
+    database.connect()
     MAX_MAG = 18
 
     results = catalogdb.Gaia_DR2.select(
@@ -86,7 +90,7 @@ def queryGaia(raCen, decCen, radius=0.08):
         ) & \
         (catalogdb.Gaia_DR2.phot_g_mean_mag < MAX_MAG)
     )
-
+    database.close()
     return list(results)
 
 
@@ -349,6 +353,10 @@ class ProcGimg(object):
         finally trim so that only sources on the chip exist
         """
 
+        # from sdssdb.peewee.sdss5db import database, catalogdb
+        # database.set_profile('operations')
+        database.connect()
+
         results = catalogdb.Gaia_DR2.select(
             catalogdb.Gaia_DR2.solution_id,
             catalogdb.Gaia_DR2.source_id,
@@ -368,6 +376,7 @@ class ProcGimg(object):
             ) & \
             (catalogdb.Gaia_DR2.phot_g_mean_mag < maxMag)
         )
+        database.close()
 
         results = pandas.DataFrame(list(results.dicts()))
         # add a pseudoflux column
@@ -500,6 +509,8 @@ class GuideBundle(object):
             else:
                 gfaNumStr = "gfa%is"%gfaNum
             imgFile = getGimgBasePath(site)+ "/%i/proc-gimg-%s-%s.fits"%(mjd,gfaNumStr,imgNumStr)
+            if not os.path.exists(imgFile):
+                continue
             self.gfaDict[gfaNum] = ProcGimg(imgFile, site, gfaNum)
 
         dfList = []
@@ -509,6 +520,8 @@ class GuideBundle(object):
             dfList.append(_df)
 
         df = pandas.concat(dfList)
+        df["imgNum"] = imgNum
+        df["mjd"] = mjd
         self.matches = df
 
         self.fitWokOffset()
@@ -623,11 +636,11 @@ if __name__ == "__main__":
     # process()
     gb1 = GuideBundle("lco", 59854, 100)
     print("configid", gb1.configid)
-    gb1.fitPointing()
+    # gb1.fitPointing()
 
     gb2 = GuideBundle("apo", 59930, 243)
     print("configid", gb2.configid)
-    gb2.fitPointing()
+    # gb2.fitPointing()
     import pdb; pdb.set_trace()
 
 

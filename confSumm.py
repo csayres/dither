@@ -11,12 +11,25 @@ from astropy import units as u
 from coordio.utils import fitsTableToPandas, wokxy2radec, radec2wokxy
 import matplotlib.pyplot as plt
 import time
+from multiprocessing import Pool
+from functools import partial
 
 from procGimg import GuideBundle
 
 CONFIG_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/software/git/sdss/sdsscore/main"
 DATA_BASE_PATH = "/uufs/chpc.utah.edu/common/home/sdss50/sdsswork/data"
 
+def processGuideBundle(imageNum, site, mjd):
+    gb = GuideBundle(site, mjd, imageNum)
+
+    matches = gb.matches.copy()
+    matches["fluxRatio"] = matches.fluxNorm_meas / matches.fluxNorm_expect
+    matches["raFit"] = gb.raCenFit
+    matches["decFit"] = gb.decCenFit
+    matches["paFit"] = gb.paFit
+    matches["scaleFit"] = gb.scaleFit
+
+    return matches
 
 def parseConfSummary(ff):
     print("parsing sum file", ff)
@@ -76,9 +89,8 @@ def parseConfSummary(ff):
     ot = df.on_target.to_numpy(dtype=bool)
     iv = df.valid.to_numpy(dtype=bool)
     aa = df.assigned.to_numpy(dtype=bool)
-    dc = df.decollided.to_numpy(dtype=bool)
 
-    df["activeFiber"] = ot & iv & aa & ~dc
+    df["activeFiber"] = ot & iv & aa
 
     # last check if this is an "F" file
     if "confSummaryF" in ff:
@@ -115,8 +127,8 @@ def parseConfSummary(ff):
 class SciExp(object):
     def __init__(
         self, site, fiberType, mjd, sciImgNum, expStart, expTime,
-        gimgNums, ditherFile, confExpect, confMeas,
-        quick=True
+        gimgNums, ditherFile, confMeas,
+        quick=False
     ):
         if quick:
             # use only 3 random guide images
@@ -126,16 +138,27 @@ class SciExp(object):
         self.mjd = mjd
         self.sciImgNum = sciImgNum
         self.gimgNums = gimgNums
-        self.confExpect = confExpect.copy()
         self.confMeas = confMeas.copy()
 
-        self.guideBundles = [GuideBundle(site,mjd,imgNum) for imgNum in gimgNums]
+        _processGuideBundle = partial(processGuideBundle, mjd=mjd, site=site)
+        p = Pool(12)
+        matches = p.map(_processGuideBundle, gimgNums)
+        matches = pandas.concat(matches)
+        p.close()
+
+        # self.guideBundles = [GuideBundle(site,mjd,imgNum) for imgNum in gimgNums]
 
         # pointing parameters from gimgs
-        self.raFit = numpy.median([gb.raCenFit] for gb in self.guideBundles)
-        self.decFit = numpy.median([gb.decCenFit] for gb in self.guideBundles)
-        self.paFit = numpy.median([gb.paFit] for gb in self.guideBundles)
-        self.scaleFit = numpy.median([gb.scaleFit] for gb in self.guideBundles)
+        self.raFit = numpy.median(matches.raFit)
+        self.decFit = numpy.median(matches.decFit)
+        self.paFit = numpy.median(matches.paFit)
+        self.scaleFit = numpy.median(matches.scaleFit)
+        # optical performance from gimgs
+        matches = matches[matches.cpeak > 500]
+        matches = matches[matches.cpeak < 50000]
+        matches = matches.groupby(["source_id", "gfaID"]).median().reset_index()
+        matches["fluxRatio"] = matches.fluxNorm_meas / matches.fluxNorm_expect
+
 
         self.dateObs = expStart + TimeDelta(expTime/2*u.s) # midpoint of spectrograph exposure
         self.dateObsJD = self.dateObs.jd
@@ -152,21 +175,44 @@ class SciExp(object):
             xWokStar.append(xWok[0])
             yWokStar.append(yWok[0])
 
-        self.confMeas["xWokStar"] = numpy.array(xWokStar)
-        self.confMeas["yWokStar"] = numpy.array(yWokStar)
-
+        self.confMeas["xWokStar"] = xWokStar
+        self.confMeas["yWokStar"] = yWokStar
+        self.confMeas["raFit"] = self.raFit
+        self.confMeas["decFit"] = self.decFit
+        self.confMeas["paFit"] = self.paFit
+        self.confMeas["scaleFit"] = self.scaleFit
+        self.confMeas["dateObsJD"] = self.dateObsJD
+        self.confMeas["sigmaGFA"] = numpy.sqrt(numpy.median(matches.x2/2+matches.y2/2))*13.5/1000 # mm in focal plane
+        self.confMeas["fluxRatioGFA"] = numpy.median(matches.fluxRatio)
+        self.confMeas["xWokFiber"] = self.confMeas["xwok"] # FVC measured
+        self.confMeas["yWokFiber"] = self.confMeas["ywok"] # FVC measured
+        self.confMeas["fiberType"] = self.fiberType
+        self.confMeas["sciImgNum"] = self.sciImgNum
 
         ff = fits.open(ditherFile)
         ditherFlux = fitsTableToPandas(ff[1].data)
+        ditherFlux["fiberId"] = ditherFlux.fiber
+        if self.fiberType == "apogee":
+            magCol = "hmag"
+        else:
+            magCol = "flux_g"
 
+        fluxNorm_expect = 10**(-ditherFlux[magCol]/2.5) # plus a constant zeropoint
+        ditherFlux["flux_expect"] = fluxNorm_expect
 
-        import pdb; pdb.set_trace()
+        self.confMeas = self.confMeas.merge(ditherFlux, on="fiberId").reset_index()
+        keepColumns = ["positionerId", "fiberId", "fiberType", "spectroflux", "spectroflux_ivar", magCol, "flux_expect", "xWokStar", "yWokStar", "xWokFiber", "yWokFiber"]
+        keepColumns += ["raFit", "decFit", "paFit", "scaleFit", "dateObsJD", "sigmaGFA", "fluxRatioGFA"]
+        keepColumns += ["sciImgNum", "alpha", "beta", "dateObsJD"]
+        self.confMeas = self.confMeas[keepColumns]
+
+        # print("sigmaGFA", self.confMeas.sigmaGFA.to_numpy()[0])
 
 
 
 
 class Configuration(object):
-    def __init__(self, configID, color="blue"):
+    def __init__(self, configID, color="red"):
         """color ignored for apogee, corresponds to red or blue boss chip
         """
         assert color in ["blue", "red"]
@@ -180,9 +226,9 @@ class Configuration(object):
         confPath, confFPath = self._getConfPaths()
         assert os.path.exists(confPath)
         assert os.path.exists(confFPath)
-        self.confExpect = parseConfSummary(confPath)
         self.confMeas = parseConfSummary(confFPath)
         self.mjd = int(self.confMeas.mjd.to_numpy()[0])
+        print("conf lens", len(self.confMeas))
 
         self.gimgNum = []
         self.gimgFile = []
@@ -218,13 +264,7 @@ class Configuration(object):
                 (self.confMeas.isSky == False) & \
                 (self.confMeas.fiberId != -999)
             ]
-            self.confExpectAssigned = self.confExpect[
-                (self.confExpect.fiberType == "APOGEE") & \
-                (self.confExpect.positionerId.isin(
-                    self.confMeasAssigned.positionerId.to_numpy()
-                    )
-                )
-            ]
+
         elif len(self.bossNum) > 0:
             self.fiberType = "boss"
             assert len(self.apNum) == 0, "found both ap and boss exposures"
@@ -235,17 +275,15 @@ class Configuration(object):
                 (self.confMeas.isSky == False) & \
                 (self.confMeas.fiberId != -999)
             ]
-            self.confExpectAssigned = self.confExpect[
-                (self.confExpect.fiberType == "BOSS") & \
-                (self.confExpect.positionerId.isin(
-                    self.confMeasAssigned.positionerId.to_numpy()
-                    )
-                )
-            ]
+
         else:
             raise RuntimeError("No Boss or Ap exposures found")
 
-        self.sciExps = self.bundleSciExps()
+        if len(self.confMeasAssigned) > 0:
+            self.sciExps = self.bundleSciExps() # writes a csv for every exposure
+        else:
+            print("found no assigned")
+            self.sciExps = None
 
 
     def bundleSciExps(self):
@@ -261,11 +299,8 @@ class Configuration(object):
         DitherFile = getattr(self,"%sDitherFile"%attrPre)
 
         sciExps = []
-        ii=0
         for n,f,es,ee,et,df in zip(Num,File,ExpStart,ExpEnd,ExpTime,DitherFile):
             # find what gimgs go with this science image
-            if ii==3:
-                break
             print("on image n",n)
             gimgExpNums = []
             for gimgNum, gimgStart, gimgEnd in zip(self.gimgNum, self.gimgExpStart, self.gimgExpEnd):
@@ -277,42 +312,16 @@ class Configuration(object):
 
             sciExp = SciExp(site=self.site, fiberType=self.fiberType,
                              mjd=self.mjd, sciImgNum=n, expStart=es, expTime=et, gimgNums=gimgExpNums,
-                             ditherFile=df, confExpect=self.confExpectAssigned,
+                             ditherFile=df,
                              confMeas=self.confMeasAssigned)
+            print("sigmaGFA", sciExp.confMeas.sigmaGFA.to_numpy()[0])
+            dframe = sciExp.confMeas.copy()
+            dframe["mjd"] = self.mjd
+            dframe["configID"] = self.configID
+            dframe.to_csv("dither_%i_%i.csv"%(self.configID, n), index=False)
             sciExps.append(sciExp)
-            ii+=1
 
         return sciExps
-
-    def _testCoordio(self):
-        # test that coordinate propagation gives the same answers as the
-        # configuration file
-        # seems to work
-        dxWok = []
-        dyWok = []
-        for ii, row in self.confExpectAssigned.iterrows():
-            xWok, yWok, fieldWarn, HA, PA = radec2wokxy(
-                [float(row.racat)], [float(row.deccat)], float(row.coord_epoch_jd), self.fiberType.capitalize(),
-                float(row.raCen), float(row.decCen), float(row.pa),
-                self.site.upper(), float(row.epoch), focalScale=float(row.focal_scale),
-                pmra=float(row.pmra), pmdec=float(row.pmdec)
-            )
-            dxWok.append(xWok[0] - float(row.xwok))
-            dyWok.append(yWok[0] - float(row.ywok))
-
-        dxWok = numpy.array(dxWok)
-        dyWok = numpy.array(dyWok)
-        drWok = numpy.sqrt(dxWok**2+dyWok**2)
-        print(sorted(drWok)[-5:])
-        rms = numpy.sqrt(numpy.mean(drWok**2))
-        med = numpy.median(drWok)
-        print("rms um", rms, med)
-
-        plt.figure()
-        plt.quiver(self.confExpectAssigned.xwok,self.confExpectAssigned.ywok,dxWok,dyWok)
-        plt.savefig("dxy_%i.png"%self.configID)
-            # import pdb; pdb.set_trace()
-
 
 
     def _getConfPaths(self):
@@ -427,20 +436,26 @@ class Configuration(object):
 
 if __name__ == "__main__":
 
-    tstart = time.time()
-    confLCO1 = 10000207 #apogee
-    lco = Configuration(confLCO1)
-    print("one config took", time.time()-tstart)
+    # tstart = time.time()
+    # confLCO1 = 10000207 #apogee
+    # lco = Configuration(confLCO1)
+    # print("one config took", time.time()-tstart)
 
 
     # confLCO2 = 10000275 #boss
-    # confAPO2 = 5951 # apogee targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
-    # confAPO3 = 5370 # boss targets, https://data.sdss5.org/sas/sdsswork/sandbox/commiss/dither.html
+    confAPO2 = 5951
+    confAPO3 = 5316
 
     # lco1 = Configuration(confLCO1)
     # lco2 = Configuration(confLCO2)
+
+    # tstart = time.time()
     # apo2 = Configuration(confAPO2)
-    # apo3 = Configuration(confAPO3)
+    # print("apo boss one config took", time.time()-tstart)
+
+    tstart = time.time()
+    apo3 = Configuration(confAPO3)
+    print("apo boss one config took", time.time()-tstart)
 
     # import pdb; pdb.set_trace()
 
