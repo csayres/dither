@@ -151,7 +151,7 @@ class SciExp(object):
         # pointing parameters from gimgs
         # write gfa matches to csv
         matches["sciImgNum"] = sciImgNum
-        matches.to_csv("gfa_%i.csv")
+        matches.to_csv("gfa_%i.csv"%sciImgNum)
 
         self.raFit = numpy.median(matches.raFit)
         self.decFit = numpy.median(matches.decFit)
