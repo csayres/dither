@@ -1,6 +1,7 @@
 from commiss import db
 import pandas
 import os
+from confSumm import Configuration
 
 # confMJD = [ [ 5144, 59704],
 #             [ 5146, 59704],
@@ -127,7 +128,6 @@ def procAllLCO():
     os.nice(10)
     df = pandas.read_csv("holtzScrapeLCO.csv")
     configIDs = list(set(df.configurationId))
-    from confSumm import Configuration
     for configID in configIDs:
         Configuration(configID)
 
