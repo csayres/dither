@@ -90,7 +90,7 @@ def parseConfSummary(ff):
     iv = df.valid.to_numpy(dtype=bool)
     aa = df.assigned.to_numpy(dtype=bool)
 
-    df["activeFiber"] = ot & iv & aa
+    df["activeFiber"] = iv & aa
 
     # last check if this is an "F" file
     if "confSummaryF" in ff:
