@@ -17,7 +17,7 @@ def getImgList(site):
     _mjdStart = MJDStart
     imgList = []
     for mjd in range(MJDStart,MJDEnd):
-        p = dataPath + "/lco/%i/proc-fimg*.fits"%mjd
+        p = dataPath + "lco/%i/proc-fimg*.fits"%mjd
         files = glob.glob(p)
         if len(files) > 0:
             imgList.extend(files)
