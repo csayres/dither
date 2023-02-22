@@ -80,13 +80,13 @@ for site in ["apo", "lco"]:
     files = sorted(getImgList(site))
     files = files[:3]
     for nudgeAdjust in [True, False]:
-        p = Pool(5)
+        # p = Pool(5)
         _func = functools.partial(doOne, site=site, nudgeAdjust=nudgeAdjust)
-        p.map(_func, files)
+        # p.map(_func, files)
 
-        # for file in files:
-        #     print("processing file", file)
-        #     doOne(file, site, nudgeAdjust)
+        for file in files:
+            print("processing file", file)
+            _func(file)
 
 
 
