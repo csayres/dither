@@ -62,11 +62,13 @@ def doOne(file, site, nudgeAdjust):
     ptm["imgNum"] = imgNum
     ptm["adjusted"] = nudgeAdjust
     ptm["site"] = site
+    ptm["nPixX"] = ff[1].data.shape[1]
 
     fcm["mjd"] = mjd
     fcm["imgNum"] = imgNum
     fcm["adjusted"] = nudgeAdjust
     fcm["site"] = site
+    fcm["nPixX"] = ff[1].data.shape[1]
 
     fpath = outPath + "fvcResize/" + "ptm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
     ptm.to_csv(fpath)
