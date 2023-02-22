@@ -55,8 +55,8 @@ def doOne(file, site, nudgeAdjust):
     print("got positioner table")
     print(len(ft.positionerTableMeas))
 
-    ptm = ft.positionerTableMeas.copy().reset_index()
-    fcm = ft.fiducialCoordsMeas.copy().reset_index()
+    ptm = ft.positionerTableMeas
+    fcm = ft.fiducialCoordsMeas
 
     ptm["mjd"] = mjd
     ptm["imgNum"] = imgNum
