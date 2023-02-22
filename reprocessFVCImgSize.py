@@ -54,6 +54,26 @@ def doOne(file, site, nudgeAdjust):
     print("got positioner table")
     print(len(ft.positionerTableMeas))
 
+    ptm = ft.positionerTableMeas.copy()
+    fcm = ft.fiducialCoordsMeas.copy()
+
+    ptm["mjd"] = mjd
+    ptm["imgNum"] = imgNum
+    ptm["adjusted"] = nudgeAdjust
+    ptm["site"] = site
+
+    fcm["mjd"] = mjd
+    fcm["imgNum"] = imgNum
+    fcm["adjusted"] = nudgeAdjust
+    fcm["site"] = site
+
+    fpath = outPath + "fvcResize/" + "ptm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
+    ptm.to_csv(fpath)
+
+    fpath = outPath + "fvcResize/" + "fcm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
+    fcm.to_csv(fpath)
+
+    ff.close()
 
 for site in ["apo", "lco"]:
     files = sorted(getImgList(site))
