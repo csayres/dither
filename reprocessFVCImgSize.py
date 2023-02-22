@@ -32,52 +32,56 @@ def doOne(file, site, nudgeAdjust):
     else:
         FVCTransform = FVCTransformLCO
 
-    imgNum = int(file.split("-")[-1].strip(".fits"))
-    mjd = int(file.split("/")[-2])
-    pt = calibration.positionerTable.loc[site.upper()].reset_index()
-    wc = calibration.wokCoords.loc[site.upper()].reset_index()
-    fc = calibration.fiducialCoords.loc[site.upper()].reset_index()
-    ff = fits.open(file)
-    print("imagesize", ff[1].data.shape)
-    ipa = ff[1].header["IPA"]
-    pc = fitsTableToPandas(ff["POSANGLES"].data)
-    ft = FVCTransform(
-        ff[1].data,
-        pc,
-        ipa,
-        positionerTable=pt,
-        wokCoords=wc,
-        fiducialCoords=fc,
-        nudgeAdjust=nudgeAdjust
-    )
-    ft.extractCentroids()
-    print("got centroids", len(ft.centroids))
-    ft.fit()
-    print("got positioner table")
-    print(len(ft.positionerTableMeas))
+    try:
+        imgNum = int(file.split("-")[-1].strip(".fits"))
+        mjd = int(file.split("/")[-2])
+        pt = calibration.positionerTable.loc[site.upper()].reset_index()
+        wc = calibration.wokCoords.loc[site.upper()].reset_index()
+        fc = calibration.fiducialCoords.loc[site.upper()].reset_index()
+        ff = fits.open(file)
+        print("imagesize", ff[1].data.shape)
+        ipa = ff[1].header["IPA"]
+        pc = fitsTableToPandas(ff["POSANGLES"].data)
+        ft = FVCTransform(
+            ff[1].data,
+            pc,
+            ipa,
+            positionerTable=pt,
+            wokCoords=wc,
+            fiducialCoords=fc,
+            nudgeAdjust=nudgeAdjust
+        )
+        ft.extractCentroids()
+        print("got centroids", len(ft.centroids))
+        ft.fit()
+        print("got positioner table")
+        print(len(ft.positionerTableMeas))
 
-    ptm = ft.positionerTableMeas
-    fcm = ft.fiducialCoordsMeas
+        ptm = ft.positionerTableMeas
+        fcm = ft.fiducialCoordsMeas
 
-    ptm["mjd"] = mjd
-    ptm["imgNum"] = imgNum
-    ptm["adjusted"] = nudgeAdjust
-    ptm["site"] = site
-    ptm["nPixX"] = ff[1].data.shape[1]
+        ptm["mjd"] = mjd
+        ptm["imgNum"] = imgNum
+        ptm["adjusted"] = nudgeAdjust
+        ptm["site"] = site
+        ptm["nPixX"] = ff[1].data.shape[1]
 
-    fcm["mjd"] = mjd
-    fcm["imgNum"] = imgNum
-    fcm["adjusted"] = nudgeAdjust
-    fcm["site"] = site
-    fcm["nPixX"] = ff[1].data.shape[1]
+        fcm["mjd"] = mjd
+        fcm["imgNum"] = imgNum
+        fcm["adjusted"] = nudgeAdjust
+        fcm["site"] = site
+        fcm["nPixX"] = ff[1].data.shape[1]
 
-    fpath = outPath + "fvcResize/" + "ptm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
-    ptm.to_csv(fpath)
+        fpath = outPath + "fvcResize/" + "ptm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
+        ptm.to_csv(fpath)
 
-    fpath = outPath + "fvcResize/" + "fcm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
-    fcm.to_csv(fpath)
+        fpath = outPath + "fvcResize/" + "fcm-%s-%i-%i-%s.csv"%(site,mjd,imgNum,str(nudgeAdjust))
+        fcm.to_csv(fpath)
 
-    ff.close()
+        ff.close()
+    except:
+        with open(outPath+"fvcResize/failed.txt", "a") as f:
+            f.write("%s\n"%file)
 
 
 if __name__ == "__main__":
