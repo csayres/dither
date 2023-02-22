@@ -36,6 +36,7 @@ def doOne(file, site):
     wc = calibration.wokCoords.loc[site.upper()].reset_index()
     fc = calibration.fiducialCoords.loc[site.upper()].reset_index()
     ff = fits.open(file)
+    print("imagesize", ff[1].data.shape)
     ipa = ff[1].header["IPA"]
     pc = fitsTableToPandas(ff["POSANGLES"].data)
     ft = FVCTransform(
@@ -47,10 +48,10 @@ def doOne(file, site):
         fiducialCoords=fc
     )
     ft.extractCentroids()
-    print("got centroids", ft.centroids)
+    print("got centroids", len(ft.centroids))
     ft.fit()
     print("got positioner table")
-    print(ft.positionerTableMeas)
+    print(len(ft.positionerTableMeas))
 
 
 for site in ["apo", "lco"]:
