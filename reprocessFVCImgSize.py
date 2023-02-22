@@ -24,7 +24,7 @@ def getImgList(site):
     return imgList
 
 
-def doOne(file, site):
+def doOne(file, site, nudgeAdjust):
     if site=="apo":
         FVCTransform = FVCTransformAPO
     else:
@@ -45,7 +45,8 @@ def doOne(file, site):
         ipa,
         positionerTable=pt,
         wokCoords=wc,
-        fiducialCoords=fc
+        fiducialCoords=fc,
+        nudgeAdjust=nudgeAdjust
     )
     ft.extractCentroids()
     print("got centroids", len(ft.centroids))
@@ -56,10 +57,11 @@ def doOne(file, site):
 
 for site in ["apo", "lco"]:
     files = sorted(getImgList(site))
-    files = files[:10]
-    for file in files:
-        print("processing file", file)
-        doOne(file, site)
+    files = files[:3]
+    for nudgeAdjust in [True, False]:
+        for file in files:
+            print("processing file", file)
+            doOne(file, site, nudgeAdjust)
 
 
 
