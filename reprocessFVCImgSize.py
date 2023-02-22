@@ -1,7 +1,6 @@
 import glob
 from astropy.io import fits
 from multiprocessing import Pool
-import pdb; pdb.set_trace()
 
 from coordio.transforms import FVCTransformAPO, FVCTransformLCO
 from coordio.utils import fitsTableToPandas
@@ -23,6 +22,7 @@ def getImgList(site):
         if len(files) > 0:
             imgList.extend(files)
     return imgList
+
 
 def doOne(file, site):
     if site=="apo":
@@ -47,8 +47,9 @@ def doOne(file, site):
         fiducialCoords=fc
     )
     ft.extractCentroids()
-    fc.fit()
+    ft.fit()
     print(fc.positionerTableMeas)
+
 
 for site in ["apo", "lco"]:
     files = sorted(getImgList(site))
