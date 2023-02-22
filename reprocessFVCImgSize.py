@@ -17,7 +17,7 @@ def getImgList(site):
     _mjdStart = MJDStart
     imgList = []
     for mjd in range(MJDStart,MJDEnd):
-        p = dataPath + "lco/%i/proc-fimg*.fits"%mjd
+        p = dataPath + "%s/%i/proc-fimg*.fits"%(site,mjd)
         files = glob.glob(p)
         if len(files) > 0:
             imgList.extend(files)
@@ -47,7 +47,9 @@ def doOne(file, site):
         fiducialCoords=fc
     )
     ft.extractCentroids()
+    print("got centroids", ft.centroids)
     ft.fit()
+    print("got positioner table")
     print(ft.positionerTableMeas)
 
 
@@ -56,10 +58,7 @@ for site in ["apo", "lco"]:
     files = files[:10]
     for file in files:
         print("processing file", file)
-        try:
-            doOne(file, site)
-        except:
-            print("failed, moving on")
+        doOne(file, site)
 
 
 
