@@ -53,7 +53,9 @@ def doOne(file, site):
 for site in ["apo", "lco"]:
     files = sorted(getImgList(site))
     files = files[:10]
-
+    for file in files:
+        print("processing file", file)
+        doOne(file, site)
 
 
 
