@@ -1,6 +1,7 @@
 import glob
 from astropy.io import fits
 from multiprocessing import Pool
+import functools
 
 from coordio.transforms import FVCTransformAPO, FVCTransformLCO
 from coordio.utils import fitsTableToPandas
