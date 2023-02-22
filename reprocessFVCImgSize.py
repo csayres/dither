@@ -48,7 +48,7 @@ def doOne(file, site):
     )
     ft.extractCentroids()
     ft.fit()
-    print(fc.positionerTableMeas)
+    print(ft.positionerTableMeas)
 
 
 for site in ["apo", "lco"]:
