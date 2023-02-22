@@ -9,7 +9,7 @@ from coordio.defaults import calibration
 dataPath = "/uufs/chpc.utah.edu/common/home/sdss50/sdsswork/data/fcam/"
 outPath = "/uufs/chpc.utah.edu/common/home/u0449727/work/"
 
-MJDStart = 59900
+MJDStart = 59950
 MJDEnd = 60000
 
 
