@@ -2,6 +2,7 @@ import glob
 from astropy.io import fits
 from multiprocessing import Pool
 import functools
+import os
 
 from coordio.transforms import FVCTransformAPO, FVCTransformLCO
 from coordio.utils import fitsTableToPandas
@@ -10,7 +11,7 @@ from coordio.defaults import calibration
 dataPath = "/uufs/chpc.utah.edu/common/home/sdss50/sdsswork/data/fcam/"
 outPath = "/uufs/chpc.utah.edu/common/home/u0449727/work/"
 
-MJDStart = 59950
+MJDStart = 59900
 MJDEnd = 60000
 
 
@@ -78,13 +79,16 @@ def doOne(file, site, nudgeAdjust):
 
     ff.close()
 
-for site in ["apo", "lco"]:
-    files = sorted(getImgList(site))
-    files = files[:3]
-    for nudgeAdjust in [True, False]:
-        p = Pool(5)
-        _func = functools.partial(doOne, site=site, nudgeAdjust=nudgeAdjust)
-        p.map(_func, files)
+
+if __name__ == "__main__":
+    os.nice(10)
+    for site in ["apo", "lco"]:
+        files = sorted(getImgList(site))
+        files = files[:3]
+        for nudgeAdjust in [True, False]:
+            p = Pool(25)
+            _func = functools.partial(doOne, site=site, nudgeAdjust=nudgeAdjust)
+            p.map(_func, files)
 
         # for file in files:
         #     print("processing file", file)
