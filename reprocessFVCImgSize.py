@@ -54,8 +54,8 @@ def doOne(file, site, nudgeAdjust):
     print("got positioner table")
     print(len(ft.positionerTableMeas))
 
-    ptm = ft.positionerTableMeas.copy()
-    fcm = ft.fiducialCoordsMeas.copy()
+    ptm = ft.positionerTableMeas.copy().reset_index()
+    fcm = ft.fiducialCoordsMeas.copy().reset_index()
 
     ptm["mjd"] = mjd
     ptm["imgNum"] = imgNum
@@ -79,9 +79,13 @@ for site in ["apo", "lco"]:
     files = sorted(getImgList(site))
     files = files[:3]
     for nudgeAdjust in [True, False]:
-        for file in files:
-            print("processing file", file)
-            doOne(file, site, nudgeAdjust)
+        p = Pool(5)
+        _func = functools.partial(doOne, site=site, nudgeAdjust=nudgeAdjust)
+        p.map(_func, files)
+
+        # for file in files:
+        #     print("processing file", file)
+        #     doOne(file, site, nudgeAdjust)
 
 
 
