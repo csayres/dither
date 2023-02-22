@@ -84,7 +84,6 @@ if __name__ == "__main__":
     os.nice(10)
     for site in ["apo", "lco"]:
         files = sorted(getImgList(site))
-        files = files[:3]
         for nudgeAdjust in [True, False]:
             p = Pool(25)
             _func = functools.partial(doOne, site=site, nudgeAdjust=nudgeAdjust)
