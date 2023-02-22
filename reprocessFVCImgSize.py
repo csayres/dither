@@ -56,7 +56,10 @@ for site in ["apo", "lco"]:
     files = files[:10]
     for file in files:
         print("processing file", file)
-        doOne(file, site)
+        try:
+            doOne(file, site)
+        except:
+            print("failed, moving on")
 
 
 
