@@ -146,9 +146,12 @@ def getShift2(xyGaia, xyDetect):
 
     return xOff, yOff
 
+GUIDE_STAR_CAT = {}
+
+
 
 class ProcGimg(object):
-    def __init__(self, filename, site, gfaID, extract=True, focalScale=1):
+    def __init__(self, filename, site, gfaID, extract=True, focalScale=1, gfaCoords=None):
         """
         Parameters
         ------------------
@@ -170,7 +173,10 @@ class ProcGimg(object):
         self.extract = extract
         self.focalScale = focalScale
         self.site = site.lower()
-        self.gfaCoords = getGFACoords(self.site)
+        if gfaCoords is None:
+            self.gfaCoords = getGFACoords(self.site)
+        else:
+            self.gfaCoords = gfaCoords.copy()
 
         self.ff = fits.open(filename)
         self.astroNetSolved = self.ff[1].header["SOLVED"]
@@ -192,7 +198,7 @@ class ProcGimg(object):
             # center in degrees O.5 pixel shift is because
             # astropy takes (0,0) to be center of LL pixel
             # and coordio uses (0,0) is LL corner of LL pixel
-            sky = self.wcs.pixel_to_world(1024.5,1024.5)
+            sky = self.wcs.pixel_to_world(1024 - 0.5,1024 - 0.5)
             # edge = w.pixel_to_world(0,0)
             # sky corner to center separation is 0.058 deg
             # (use this for querying radius for gaia)
@@ -234,7 +240,9 @@ class ProcGimg(object):
         self.centroids["zWok"] = zWok
         self.centroids["fluxNorm"] = self.centroids.cflux / self.exptime
 
+        t1 = time.time()
         self._getGuideStars() # sets attr self.guideStars
+        print("get guideStars took", time.time()-t1)
         self._matchGuideStars() # sets attr self.matches
 
         self.dxMean = None # pixels
@@ -256,31 +264,30 @@ class ProcGimg(object):
 
         self._fit()
 
-
     @property
     def offRA(self):
         # ra offset in degrees
-        return (self.ff[1].header["OFFRA"] + self.ff[1].header["AOFFRA"])/3600.
+        return (self.ff[1].header["AOFFRA"])/3600.
 
     @property
     def offDec(self):
-        return (self.ff[1].header["OFFDEC"] + self.ff[1].header["AOFFDEC"])/3600.
+        return (self.ff[1].header["AOFFDEC"])/3600.
 
     @property
     def offPA(self):
-        return (self.ff[1].header["OFFPA"] + self.ff[1].header["AOFFPA"])/3600.
+        return (self.ff[1].header["AOFFPA"])/3600.
 
     @property
     def raField(self):
-        return self.ff[1].header["RAFIELD"] + self.offRA/numpy.cos(numpy.radians(self.decField))
+        return self.ff[1].header["RAFIELD"] - self.offRA/numpy.cos(numpy.radians(self.decField))
 
     @property
     def decField(self):
-        return self.ff[1].header["DECFIELD"] + self.offDec
+        return self.ff[1].header["DECFIELD"] - self.offDec # guider subtracts offsets from field center
 
     @property
     def paField(self):
-        return self.ff[1].header["FIELDPA"] + self.offPA
+        return self.ff[1].header["FIELDPA"] - self.offPA
 
     @property
     def dateObs(self):
@@ -355,6 +362,15 @@ class ProcGimg(object):
 
         # from sdssdb.peewee.sdss5db import database, catalogdb
         # database.set_profile('operations')
+
+        # first check if guide stars for this field already exist
+        global GUIDE_STAR_CAT
+        if self.configid in list(GUIDE_STAR_CAT.keys()):
+            if self.gfaID in GUIDE_STAR_CAT[self.configid].keys():
+                self.guideStars = GUIDE_STAR_CAT[self.configid][self.gfaID].copy()
+                print("copied previously found guideStars")
+                return
+
         database.connect()
 
         results = catalogdb.Gaia_DR2.select(
@@ -420,6 +436,11 @@ class ProcGimg(object):
         results = results.dropna()
 
         self.guideStars = results.reset_index(drop=True)
+
+        if self.configid not in list(GUIDE_STAR_CAT.keys()):
+            GUIDE_STAR_CAT[self.configid] = {}
+        if self.gfaID not in GUIDE_STAR_CAT[self.configid].keys():
+            GUIDE_STAR_CAT[self.configid][self.gfaID] = self.guideStars.copy()
 
 
     def _matchGuideStars(self, thresh=10):
@@ -632,6 +653,312 @@ class GuideBundle(object):
 
         plt.close("all")
 
+class ProcGimgLite(object):
+    def __init__(self, filename, site, gfaID, extract=True, focalScale=1, gfaCoords=None):
+        """
+        Parameters
+        ------------------
+        filename : string
+            path to proc-gimg file
+        site : string
+            "apo" or "lco" (case ignored)
+        gfaID : int
+            gfa id (1-6)
+        extract : bool
+            if True, re-extract centroids.  Else, use extractions
+            present from fits file
+        focalScale : float
+            scale to use for coordio conversions
+
+        """
+        self.filename = filename
+        self.gfaID = gfaID
+        self.extract = extract
+        self.focalScale = focalScale
+        self.site = site.lower()
+        if gfaCoords is None:
+            self.gfaCoords = getGFACoords(self.site)
+        else:
+            self.gfaCoords = gfaCoords.copy()
+
+        self.ff = fits.open(filename)
+        self.astroNetSolved = self.ff[1].header["SOLVED"]
+
+        # if extract:
+        #     self.centroids = self._extract()
+        # else:
+        #     self.centroids = fitsTableToPandas(self.ff["CENTROIDS"].data)
+
+        gfaRow = self.gfaCoords[self.gfaCoords.id == gfaID]
+        self.b = gfaRow[["xWok", "yWok", "zWok"]].to_numpy().squeeze()
+        self.iHat = gfaRow[["ix", "iy", "iz"]].to_numpy().squeeze()
+        self.jHat = gfaRow[["jx", "jy", "jz"]].to_numpy().squeeze()
+        self.kHat = gfaRow[["kx", "ky", "kz"]].to_numpy().squeeze()
+        self.expectChipCenWokX = self.b[0]
+        self.expectChipCenWokY = self.b[1]
+
+        raChipCen, decChipCen, warn = wokxy2radec(
+            numpy.array([self.b[0]]), numpy.array([self.b[1]]), "GFA", self.raField, self.decField,
+            self.paField, self.site.upper(), self.dateObs.jd, focalScale=self.focalScale
+        )
+        self.expectChipCenRA = raChipCen[0]
+        self.expectChipCenDec = decChipCen[0]
+
+        if self.astroNetSolved:
+            self.wcs = WCS(self.ff[1].header)
+            # if there is a wcs solved determine the chip
+            # center in degrees O.5 pixel shift is because
+            # astropy takes (0,0) to be center of LL pixel
+            # and coordio uses (0,0) is LL corner of LL pixel
+            sky = self.wcs.pixel_to_world(1024 - 0.5,1024 - 0.5)
+            # edge = w.pixel_to_world(0,0)
+            # sky corner to center separation is 0.058 deg
+            # (use this for querying radius for gaia)
+            self.measChipCenRA = sky.ra.degree
+            self.measChipCenDec = sky.dec.degree
+            self.pixelScale = self.ff[1].header["PIXELSC"]  # arcseconds per pixel
+
+            xWok,yWok,fieldWarn,hourAngle,positionAngle = radec2wokxy(
+                numpy.array([sky.ra.degree]), numpy.array([sky.dec.degree]), None, "GFA", self.raField, self.decField,
+                self.paField, self.site.upper(), self.dateObs.jd, focalScale=self.focalScale
+            )
+
+            self.measChipCenWokX = xWok[0]
+            self.measChipCenWokY = yWok[0]
+            self.fieldWarn = fieldWarn[0]
+            # import pdb; pdb.set_trace()
+
+        else:
+            self.measChipCenRA = None
+            self.measChipCenDec = None
+            self.measChipCenWokX = None
+            self.measChipCenWokY = None
+            self.fieldWarn = None
+            self.pixelScale = None
+
+    def toDict(self):
+        d = {}
+        props = [
+            "gfaID",
+            "offRA",
+            "offDec",
+            "offPA",
+            "raField",
+            "decField",
+            "paField",
+            "dateObsJD",
+            "configid",
+            "designid",
+            "exptime",
+            "grms",
+            "measChipCenRA",
+            "measChipCenDec",
+            "measChipCenWokX",
+            "measChipCenWokY",
+            "expectChipCenRA",
+            "expectChipCenDec",
+            "expectChipCenWokX",
+            "expectChipCenWokY",
+            "fieldWarn",
+            "solved",
+            "solveMode",
+            "pixelScale",
+            "deltaRA",
+            "deltaDec",
+            "deltaRot",
+            "deltaScale",
+            "corrRA",
+            "corrDec",
+            "corrRot",
+            "nDetect"
+        ]
+        for prop in props:
+            d[prop] = getattr(self, prop)
+        return d
+
+        # return pandas.Series(d)
+
+    @property
+    def offRA(self):
+        # ra offset in degrees
+        return (self.ff[1].header["AOFFRA"])/3600.
+
+    @property
+    def offDec(self):
+        return (self.ff[1].header["AOFFDEC"])/3600.
+
+    @property
+    def offPA(self):
+        return (self.ff[1].header["AOFFPA"])/3600.
+
+    @property
+    def raField(self):
+        return self.ff[1].header["RAFIELD"] - self.offRA/numpy.cos(numpy.radians(self.decField))
+
+    @property
+    def decField(self):
+        return self.ff[1].header["DECFIELD"] - self.offDec # guider subtracts offsets from field center
+
+    @property
+    def paField(self):
+        return self.ff[1].header["FIELDPA"] - self.offPA
+
+    @property
+    def dateObs(self):
+        return Time(self.ff[1].header["DATE-OBS"], format="iso", scale="tai")
+
+    @property
+    def dateObsJD(self):
+        return self.dateObs.jd
+
+    @property
+    def nDetect(self):
+        return len(self.centroids)
+
+    @property
+    def nMatch(self):
+        return len(self.matches)
+
+    @property
+    def nGuide(self):
+        return len(self.guideStars)
+
+    @property
+    def configid(self):
+        return self.ff[1].header["CONFIGID"]
+
+    @property
+    def designid(self):
+        return self.ff[1].header["DESIGNID"]
+
+    @property
+    def exptime(self):
+        return self.ff[1].header["EXPTIME"]
+
+    @property
+    def focus(self):
+        return self.ff[1].header["M2PISTON"]
+
+    @property
+    def grms(self):
+        try:
+            return self.ff[1].header["RMS"]
+        except:
+            return None
+
+    @property
+    def deltaRA(self):
+        try:
+            return self.ff[1].header["DELTARA"]
+        except:
+            return None
+
+    @property
+    def deltaDec(self):
+        try:
+            return self.ff[1].header["DELTADEC"]
+        except:
+            return None
+
+    @property
+    def deltaRot(self):
+        try:
+            return self.ff[1].header["DELTADEC"]
+        except:
+            return None
+
+    @property
+    def deltaScale(self):
+        try:
+            return self.ff[1].header["DELTASCL"]
+        except:
+            return None
+
+    @property
+    def corrRA(self):
+        try:
+            return self.ff[1].header["CORRR_RA"]
+        except:
+            return None
+
+    @property
+    def corrDec(self):
+        try:
+            return self.ff[1].header["CORR_DEC"]
+        except:
+            return None
+
+    @property
+    def corrRot(self):
+        try:
+            return self.ff[1].header["CORR_ROT"]
+        except:
+            return None
+
+    @property
+    def nDetect(self):
+        # get number of centroids with > 900 peak counts
+        cents = self.ff["CENTROIDS"].data
+        if len(cents)==0:
+            return 0
+        good = cents[cents["peak"]>700]
+        return len(good)
+
+    @property
+    def solved(self):
+        return self.ff[1].header["SOLVED"]
+
+    @property
+    def solveMode(self):
+        return self.ff[1].header["SOLVMODE"]
+
+
+    def _extract(self, minNPix=50):
+        """
+        Parameters
+        -----------
+        minNPix : int
+            minimum number of pixels for bone fide detection
+        """
+        data = numpy.array(self.ff[1].data, dtype=numpy.float64)
+        bkg = sep.Background(data)
+        bkg_image = bkg.back()
+        bkg_rms = bkg.rms()
+        data_sub = data - bkg
+        objects = sep.extract(data_sub, 1.5, err=bkg.globalrms)
+        objects = fitsTableToPandas(objects)
+        objects = objects[objects.npix>minNPix]
+        return objects.reset_index(drop=True)
+
+
+class GuideBundleLite(object):
+    def __init__(self, site, mjd, imgNum):
+        self.mjd = mjd
+        self.imgNum = imgNum
+        self.site = site.lower()
+
+        imgNumStr = str(imgNum).zfill(4)
+        self.gfaDict = {}
+        for gfaNum in range(1,7):
+            if site.lower() == "apo":
+                gfaNumStr = "gfa%in"%gfaNum
+            else:
+                gfaNumStr = "gfa%is"%gfaNum
+            imgFile = getGimgBasePath(site)+ "/%i/proc-gimg-%s-%s.fits"%(mjd,gfaNumStr,imgNumStr)
+            if not os.path.exists(imgFile):
+                continue
+            self.gfaDict[gfaNum] = ProcGimgLite(imgFile, site, gfaNum)
+
+    def toPandas(self):
+        dfList = []
+        for gfa in self.gfaDict.values():
+            _df = gfa.toDict()
+            _df["mjd"] = self.mjd
+            _df["site"] = self.site
+            _df["imgNum"] = self.imgNum
+            dfList.append(_df)
+
+        return pandas.DataFrame(dfList)
 
 
 if __name__ == "__main__":
